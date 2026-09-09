@@ -16,7 +16,7 @@ import os
 import json
 
 
-def detect_test_setup(project_path: str) -> dict:
+def detect_test_setup(project_path: str=".") -> dict:
     """Detecta o tipo de projeto Node (Nest, Express, Fastify, vanilla) e o
     test runner configurado (Jest, Vitest, Mocha), lendo o package.json.
 
@@ -61,4 +61,44 @@ def detect_test_setup(project_path: str) -> dict:
         "test_runner": runner,
         "run_cmd": run_cmd,
         "has_typescript": "typescript" in deps,
+    }
+
+import subprocess
+
+def run_tests(project_path: str=".", test_path: str = None) -> dict:
+    """Executa os testes do projeto usando o test runner detectado
+    (jest/vitest/mocha) e retorna se passou ou falhou, com os logs.
+
+    Args:
+        project_path: diretório raiz do projeto onde rodar os testes.
+        test_path: caminho de um arquivo/pasta de teste específico
+            (opcional — se omitido, roda a suíte inteira).
+    """
+    setup = detect_test_setup(project_path)
+    if setup.get("error"):
+        return setup
+    if not setup.get("run_cmd"):
+        return {"error": "Nenhum test runner (jest/vitest/mocha) detectado."}
+
+    cmd = setup["run_cmd"].split()
+    if test_path:
+        cmd.append(test_path)
+
+    timeout = int(os.getenv("TEST_TIMEOUT_SECONDS", "120"))
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {"error": f"Testes excederam {timeout}s e foram interrompidos."}
+
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout[-3000:],
+        "stderr": result.stderr[-3000:],
     }

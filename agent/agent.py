@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from google.adk.agents import Agent
-from .tools import read_code, detect_test_setup
+from .tools import read_code, detect_test_setup, run_tests
 
 # Carrega as variáveis do .env para o ambiente do processo
 load_dotenv()
@@ -17,5 +17,5 @@ root_agent = Agent(
     model=os.getenv("MODEL_NAME"),
     description="Assistente para criação e validação de testes",
     instruction=_load_instruction(),
-    tools=[read_code, detect_test_setup]
+    tools=[read_code, detect_test_setup, run_tests]
 )

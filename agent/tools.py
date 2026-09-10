@@ -1,3 +1,7 @@
+import os
+import json
+import subprocess
+
 def read_code(file_path: str) -> dict:
     """Lê o conteúdo de um arquivo de código a partir do caminho informado.
 
@@ -10,10 +14,6 @@ def read_code(file_path: str) -> dict:
             return {"content": f.read()}
     except FileNotFoundError:
         return {"error": f"Arquivo não encontrado: {file_path}"}
-
-
-import os
-import json
 
 
 def detect_test_setup(project_path: str=".") -> dict:
@@ -63,8 +63,6 @@ def detect_test_setup(project_path: str=".") -> dict:
         "has_typescript": "typescript" in deps,
     }
 
-import subprocess
-
 def run_tests(project_path: str=".", test_path: str = None) -> dict:
     """Executa os testes do projeto usando o test runner detectado
     (jest/vitest/mocha) e retorna se passou ou falhou, com os logs.
@@ -79,6 +77,16 @@ def run_tests(project_path: str=".", test_path: str = None) -> dict:
         return setup
     if not setup.get("run_cmd"):
         return {"error": "Nenhum test runner (jest/vitest/mocha) detectado."}
+
+     #Guard-rail: evita travar em npx tentando instalar pacote na hora
+    if setup["test_runner"] in ("jest", "vitest", "mocha"):
+        if not os.path.isdir(os.path.join(project_path, "node_modules")):
+            return {
+                "error": (
+                    "node_modules não encontrado. Chame install_dependencies "
+                    "antes de rodar os testes."
+                )
+            }    
 
     cmd = setup["run_cmd"].split()
     if test_path:
@@ -101,4 +109,56 @@ def run_tests(project_path: str=".", test_path: str = None) -> dict:
         "success": result.returncode == 0,
         "stdout": result.stdout[-3000:],
         "stderr": result.stderr[-3000:],
+    }
+
+def write_test_file(file_path: str, content: str, overwrite: bool = False) -> dict:
+    """Grava o conteúdo de um arquivo de teste no caminho informado.
+
+    Args:
+        file_path: caminho completo (ou relativo) de onde salvar o teste,
+            incluindo o nome do arquivo (ex: ./code.test.js).
+        content: conteúdo do arquivo de teste a ser escrito.
+        overwrite: se False (padrão) e já existir um arquivo nesse caminho,
+            não sobrescreve — retorna um aviso para o agente decidir o que fazer.
+    """
+    if os.path.exists(file_path) and not overwrite:
+        return {
+            "warning": (
+                f"Já existe um arquivo em {file_path}. Chame novamente com "
+                "overwrite=True se quiser sobrescrever."
+            )
+        }
+
+    os.makedirs(os.path.dirname(os.path.abspath(file_path)) or ".", exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return {"success": True, "path": file_path}
+
+def install_dependencies(project_path: str) -> dict:
+    """Instala as dependências do projeto (executa npm install) antes de
+    rodar os testes, quando node_modules ainda não existe.
+
+    Args:
+        project_path: diretório raiz do projeto (onde está o package.json).
+    """
+    if not os.path.exists(os.path.join(project_path, "package.json")):
+        return {"error": f"package.json não encontrado em {project_path}"}
+
+    timeout = int(os.getenv("INSTALL_TIMEOUT_SECONDS", "180"))
+    try:
+        result = subprocess.run(
+            ["npm", "install"],
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {"error": f"npm install excedeu {timeout}s."}
+
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout[-2000:],
+        "stderr": result.stderr[-2000:],
     }
